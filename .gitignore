@@ -1,0 +1,12 @@
+# Ignore compiled Python files
+*.pyc
+*/__pycache__/
+
+# Ignore checkpoints
+checkpoint/
+checkpoint/cifar100/
+checkpoint/cifar_stats/
+
+# Ignore data files
+data/
+*.log

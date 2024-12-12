@@ -81,17 +81,17 @@ parser.add_argument('--drop', '--dropout', default=0, type=float,
 parser.add_argument('--schedule', type=int, nargs='+', default=[20, 40, 60, 80],
                         help='Decrease learning rate at these epochs.')
 
-parser.add_argument('--gamma', type=float, default=0.75, help='LR is multiplied by gamma on schedule.')
+parser.add_argument('--gamma', type=float, default=0.2, help='LR is multiplied by gamma on schedule.')
 parser.add_argument('--momentum', default=0.9, type=float, metavar='M',
                     help='momentum')
 parser.add_argument('--weight-decay', '--wd', default=5e-4, type=float,
                     metavar='W', help='weight decay (default: 5e-4)')
 # Checkpoints
-parser.add_argument('-c', '--checkpoint', default=os.path.expanduser('~/fromgithub/AdaBatch/checkpoint/cifar100'), type=str, metavar='PATH',
+parser.add_argument('-c', '--checkpoint', default=os.path.expanduser('./checkpoint/cifar100'), type=str, metavar='PATH',
                     help='path to save checkpoint (default: checkpoint)')
 parser.add_argument('--resume', default='', type=str, metavar='PATH',
                     help='path to latest checkpoint (default: none)')
-parser.add_argument('--savez', default=os.path.expanduser('~/fromgithub/AdaBatch/checkpoint/cifar数值'), type=str, metavar="PATH", help='path to save 数值')
+parser.add_argument('--savez', default=os.path.expanduser('./checkpoint/cifar_stats'), type=str, metavar="PATH", help='path to save stats')
 # Architecture
 parser.add_argument('--arch', '-a', metavar='ARCH', default='resnet',
                     choices=model_names,
@@ -109,7 +109,7 @@ parser.add_argument('-e', '--evaluate', dest='evaluate', action='store_true',
                     help='evaluate model on validation set')
 
 ########## adaptive batch resize factor (1-fixed; k-adaptive, increasing by k: 2)
-parser.add_argument('--resize-factor', type=float, default=2, metavar='FACTOR', help='Increases the batch size by a factor of FACTOR.')
+parser.add_argument('--resize-factor', type=float, default=1, metavar='FACTOR', help='Increases the batch size by a factor of FACTOR.')
 parser.add_argument('--resize-freq', type=int, default=20, metavar='FREQ', help='Batch sizes is increased if training loss does not improve for FREQ consecutive epochs.')
 parser.add_argument('--warmup', type=int, default=0, metavar='N', help='Number of epochs to warmup the learning rate.')
 parser.add_argument('--baseline-batch', type=int, default=128, metavar='N', help='Baseline batch size used to compute learning rate scaling during warmup.')
@@ -214,8 +214,11 @@ def main():
     criterion = nn.CrossEntropyLoss()
 
     optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
-
-    multisteplr = optim.lr_scheduler.MultiStepLR(optimizer, milestones=args.schedule, gamma=args.gamma)  # lr 衰减策略
+    if args.dataset == 'cifar100':
+        scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=args.schedule, gamma=args.gamma) 
+    else:
+        scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=200)
+ 
 
     # Resume
     title = 'cifar-100-' + args.arch
@@ -256,6 +259,7 @@ def main():
     if(args.warmup != 0):
     	lrstep = ((args.lr*(args.train_batch/args.baseline_batch)) - args.lr)/(args.warmup - 1)
     	warmup_lr = args.lr
+
     for epoch in range(start_epoch, args.epochs):
         # adjust_learning_rate(optimizer, epoch)
 
@@ -265,7 +269,7 @@ def main():
         torch.cuda.synchronize()
         train_tot += timer() - train_start
 
-        multisteplr.step()
+        scheduler.step()
         lr_ = optimizer.state_dict()['param_groups'][0]['lr']
 
         test_start = timer()
@@ -343,8 +347,10 @@ def main():
     print('Total Test Time: %.3f s' %(test_tot))
     print('Total Batch Resize Time: %.3f s' % (resize_tot))
     print('Total Running Time: %.3f s'%(rt_tot))
-
-    np.savez(os.path.join(args.savez, f'{args.arch}数值{fix_ada}{args.train_batch}_{args.dataset}.npz'), loss=npz_save['loss'], acc=npz_save['acc'], epoch=args.epochs,
+    if not os.path.exists(args.savez):
+        os.makedirs(args.savez)
+    save_path = os.path.join(args.savez, f'{args.arch}_stat_{fix_ada}{args.train_batch}_{args.dataset}.npz')
+    np.savez(save_path, loss=npz_save['loss'], acc=npz_save['acc'], epoch=args.epochs,
              FP_time=fp_tot, BP_time=bp_tot, train_time=train_tot, test_time=test_tot, batch_resize_time=resize_tot,
              running_time=rt_tot, best_acc=best_acc, batch_size=npz_save['batch_size'], lr=npz_save['lr'])
     print('save npz succsesfully')
@@ -424,6 +430,8 @@ def test(testloader, model, criterion, epoch, use_cuda):
 
 def save_checkpoint(state, is_best, checkpoint='checkpoint', filename='checkpoint.pth'):
     filepath = os.path.join(checkpoint, filename)
+    if not os.path.isdir(checkpoint):
+        os.makedirs(checkpoint)
     torch.save(state, filepath)
     if is_best:
         shutil.copyfile(filepath, os.path.join(checkpoint, 'model_best.pth'))
@@ -450,5 +458,5 @@ def adjust_learning_rate(optimizer, epoch):
 
 if __name__ == '__main__':
     print(os.getcwd())
-    print(os.path.expanduser('~/fromgithub/AdaBatch/checkpoint/cifar100'))
+    print(os.path.expanduser('./checkpoint/cifar100'))
     main()
